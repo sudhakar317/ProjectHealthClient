@@ -3,9 +3,12 @@ import { z } from "zod";
 export const doctorSchema = z.object({
   fullName: z.string().trim().min(1, "Full name is required").max(120),
   email: z.string().trim().min(1, "Email is required").email("Enter a valid email address"),
-  phone: z.string().trim().regex(/^\+?[0-9 ()-]{7,20}$/, "Enter a valid phone number"),
+  // Optional: a doctor can be added before anyone has their number.
+  phone: z
+    .string()
+    .trim()
+    .refine((v) => v === "" || /^\+?[0-9 ()-]{7,20}$/.test(v), "Enter a valid phone number"),
   specializationId: z.string().min(1, "Select a specialization"),
-  registrationNumber: z.string().trim().min(1, "Registration number is required").max(50),
   active: z.boolean(),
 });
 

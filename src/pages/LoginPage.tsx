@@ -1,4 +1,19 @@
-import { ShieldCheck, Stethoscope } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { AlertCircle, ShieldCheck, Stethoscope, TriangleAlert } from "lucide-react";
+import { useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
+
+import { devLogin } from "@/api/auth";
+import { ApiError } from "@/api/client";
+
+/** Reasons sent by LoginAuditHandlers as ?error=<reason> after a rejected Google sign-in. */
+const errorMessages: Record<string, string> = {
+  not_registered: "That Google account is not registered. Ask an admin to add you first.",
+  inactive: "That account has been disabled. Contact an admin to re-enable it.",
+  unverified_email: "That Google account has an unverified email address.",
+  sub_mismatch: "That email is already linked to a different Google account.",
+  oauth2_error: "Sign-in with Google failed. Please try again.",
+};
 
 function GoogleIcon() {
   return (
@@ -11,26 +26,95 @@ function GoogleIcon() {
   );
 }
 
-export default function LoginPage() {
+/** Development/testing only: stripped from production builds by the import.meta.env.DEV guard below. */
+function DevEmailLogin() {
+  const queryClient = useQueryClient();
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await devLogin(email.trim());
+      await queryClient.invalidateQueries({ queryKey: ["me"] });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Sign in failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className="app-bg flex items-center justify-center p-4">
-      <div className="glass relative z-10 w-full max-w-md rounded-[2rem] p-12 text-center">
-        <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/50 bg-white/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.6),0_8px_20px_rgba(31,38,135,0.25)] backdrop-blur-md">
-          <Stethoscope className="h-8 w-8" />
+    <div className="mt-8 rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-left">
+      <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-200">
+        <TriangleAlert className="size-3.5" />
+        Development only
+      </p>
+      <form onSubmit={(e) => void submit(e)} className="mt-3">
+        <label htmlFor="dev-email" className="sr-only">
+          Admin or doctor email
+        </label>
+        <input
+          id="dev-email"
+          type="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="admin or doctor email"
+          className="w-full rounded-lg border border-white/15 bg-white/10 px-3.5 py-2.5 text-sm text-white placeholder:text-white/40 focus-visible:border-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+        />
+        <button
+          type="submit"
+          disabled={busy}
+          className="mt-2 w-full rounded-lg bg-white/15 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 disabled:opacity-60"
+        >
+          {busy ? "Signing in…" : "Sign in with email"}
+        </button>
+        {error && <p className="mt-2 text-xs text-red-300">{error}</p>}
+      </form>
+    </div>
+  );
+}
+
+export default function LoginPage() {
+  const [params] = useSearchParams();
+  const reason = params.get("error");
+  const message = reason ? (errorMessages[reason] ?? "Sign-in failed. Please try again.") : null;
+
+  return (
+    <div className="auth-bg">
+      <div className="auth-card text-center text-white">
+        <div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-lg">
+          <Stethoscope className="size-7" />
         </div>
-        <h1 className="text-4xl font-semibold tracking-tight drop-shadow-sm">Clinic</h1>
-        <p className="mt-2 text-sm text-white/75">Sign in to continue</p>
+        <h1 className="text-3xl font-semibold tracking-tight">Clinic</h1>
+        <p className="mt-1.5 text-sm text-white/60">Sign in to continue</p>
+
+        {message && (
+          <div
+            role="alert"
+            className="mt-6 flex items-start gap-2.5 rounded-xl border border-red-400/30 bg-red-500/15 p-3.5 text-left"
+          >
+            <AlertCircle className="mt-0.5 size-4 shrink-0 text-red-300" />
+            <p className="text-sm text-red-100">{message}</p>
+          </div>
+        )}
 
         <button
           onClick={() => window.location.assign("/oauth2/authorization/google")}
-          className="mt-8 flex w-full items-center justify-center gap-3 rounded-xl bg-white/90 px-5 py-3.5 backdrop-blur-md text-sm font-medium text-slate-800 shadow-lg transition hover:-translate-y-0.5 hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 active:translate-y-0"
+          className="mt-7 flex w-full items-center justify-center gap-3 rounded-xl bg-white px-5 py-3.5 text-sm font-medium text-slate-800 shadow-lg transition hover:bg-white/95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent active:scale-[0.99]"
         >
           <GoogleIcon />
           Sign in with Google
         </button>
 
-        <p className="mt-6 flex items-center justify-center gap-1.5 text-xs text-white/60">
-          <ShieldCheck className="h-3.5 w-3.5" />
+        {import.meta.env.DEV && <DevEmailLogin />}
+
+        <p className="mt-7 flex items-center justify-center gap-1.5 text-xs text-white/50">
+          <ShieldCheck className="size-3.5" />
           Access is limited to registered accounts
         </p>
       </div>

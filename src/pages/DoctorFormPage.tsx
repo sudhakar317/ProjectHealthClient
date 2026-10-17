@@ -1,8 +1,8 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
-import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
+import { AlertCircle, Plus } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Controller, useForm } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { createDoctor, getDoctor, listSpecializations, updateDoctor } from "@/api/admin";
@@ -10,11 +10,66 @@ import { ApiError } from "@/api/client";
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { SelectMenu } from "@/components/ui/select-menu";
+import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/use-toast";
 import SpecializationEditor from "@/features/admin/SpecializationEditor";
 import { doctorSchema, type DoctorForm } from "@/features/admin/schemas";
+import { describeError, hasFieldErrors } from "@/lib/errors";
+
+function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+  return (
+    <section className="border-b px-4 py-5 last:border-0 sm:px-6">
+      <div className="mb-4">
+        <h2 className="text-sm font-semibold">{title}</h2>
+        {description && <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>}
+      </div>
+      <div className="grid gap-5 sm:grid-cols-2">{children}</div>
+    </section>
+  );
+}
+
+function Field({
+  label,
+  htmlFor,
+  error,
+  hint,
+  required = true,
+  className,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  error?: string;
+  hint?: string;
+  required?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={className ?? "space-y-2"}>
+      <Label htmlFor={htmlFor}>
+        {label}{" "}
+        {required ? (
+          <span className="text-destructive">*</span>
+        ) : (
+          <span className="font-normal text-muted-foreground">(optional)</span>
+        )}
+      </Label>
+      {children}
+      {hint && !error && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {error && (
+        <p className="flex items-center gap-1.5 text-sm text-destructive">
+          <AlertCircle className="size-3.5 shrink-0" />
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
 
 export default function DoctorFormPage() {
   const { id } = useParams();
@@ -26,6 +81,7 @@ export default function DoctorFormPage() {
 
   const {
     register,
+    control,
     handleSubmit,
     setError,
     setValue,
@@ -38,7 +94,6 @@ export default function DoctorFormPage() {
       email: "",
       phone: "",
       specializationId: "",
-      registrationNumber: "",
       active: true,
     },
   });
@@ -55,9 +110,8 @@ export default function DoctorFormPage() {
       reset({
         fullName: doctor.data.fullName,
         email: doctor.data.email,
-        phone: doctor.data.phone,
+        phone: doctor.data.phone ?? "",
         specializationId: doctor.data.specializationId ? String(doctor.data.specializationId) : "",
-        registrationNumber: doctor.data.registrationNumber,
         active: doctor.data.active,
       });
     }
@@ -69,14 +123,12 @@ export default function DoctorFormPage() {
         fullName: v.fullName,
         phone: v.phone,
         specializationId: Number(v.specializationId),
-        registrationNumber: v.registrationNumber,
       };
-      return isEdit
-        ? updateDoctor(doctorId, { ...base, active: v.active })
-        : createDoctor({ ...base, email: v.email });
+      return isEdit ? updateDoctor(doctorId, { ...base, active: v.active }) : createDoctor({ ...base, email: v.email });
     },
-    onSuccess: async () => {
+    onSuccess: async (saved) => {
       await queryClient.invalidateQueries({ queryKey: ["doctors"] });
+      toast({ title: isEdit ? "Doctor updated" : "Doctor added", description: saved.fullName, variant: "success" });
       navigate("/doctors");
     },
     onError: (e) => {
@@ -86,14 +138,44 @@ export default function DoctorFormPage() {
     },
   });
 
-  const hasFieldErrors = mutation.error instanceof ApiError && Object.keys(mutation.error.fieldErrors).length > 0;
-  const formError = mutation.isError && !hasFieldErrors ? "Could not save the doctor. Please try again." : null;
+  const formError =
+    mutation.isError && !hasFieldErrors(mutation.error) ? describeError(mutation.error, "save the doctor").description : null;
+  const specializationOptions = (specializations.data ?? []).map((s) => ({ value: String(s.id), label: s.title }));
 
   if (isEdit && doctor.isLoading) {
-    return <p className="text-sm text-muted-foreground">Loading...</p>;
+    return (
+      <>
+        <PageHeader title="Edit doctor" backTo={{ to: "/doctors", label: "Doctors" }} />
+        <Card className="max-w-3xl space-y-5 p-6">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="space-y-2">
+              <Skeleton className="h-3.5 w-24" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          ))}
+        </Card>
+      </>
+    );
   }
+
   if (isEdit && doctor.isError) {
-    return <p className="text-sm text-destructive">Could not load this doctor.</p>;
+    return (
+      <>
+        <PageHeader title="Edit doctor" backTo={{ to: "/doctors", label: "Doctors" }} />
+        <Card>
+          <EmptyState
+            icon={AlertCircle}
+            title="Could not load this doctor"
+            description="They may have been deleted, or the request failed."
+            action={
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/doctors">Back to doctors</Link>
+              </Button>
+            }
+          />
+        </Card>
+      </>
+    );
   }
 
   return (
@@ -101,100 +183,116 @@ export default function DoctorFormPage() {
       <PageHeader
         title={isEdit ? "Edit doctor" : "Add doctor"}
         description={isEdit ? undefined : "The doctor can sign in with this Google email once saved."}
+        backTo={{ to: "/doctors", label: "Doctors" }}
       />
-      <Card className="max-w-2xl p-4 sm:p-6">
-        <form onSubmit={handleSubmit((v) => mutation.mutate(v))} noValidate className="grid gap-5 sm:grid-cols-2">
-          <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="fullName">Full name</Label>
-            <Input id="fullName" autoComplete="off" aria-invalid={!!errors.fullName} {...register("fullName")} />
-            {errors.fullName && <p className="text-sm text-destructive">{errors.fullName.message}</p>}
-          </div>
 
-          <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="email">Google email</Label>
-            <Input
-              id="email"
-              type="email"
-              autoComplete="off"
-              readOnly={isEdit}
-              className={isEdit ? "bg-muted text-muted-foreground" : undefined}
-              aria-invalid={!!errors.email}
-              {...register("email")}
-            />
-            {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
-          </div>
+      <form onSubmit={handleSubmit((v) => mutation.mutate(v))} noValidate className="max-w-3xl">
+        <Card className="overflow-hidden p-0">
+          <Section title="Details" description="How this doctor is identified and reached.">
+            <Field label="Full name" htmlFor="fullName" error={errors.fullName?.message} className="space-y-2 sm:col-span-2">
+              <Input id="fullName" autoComplete="off" aria-invalid={!!errors.fullName} {...register("fullName")} />
+            </Field>
 
-          <div className="space-y-2">
-            <Label htmlFor="phone">Phone</Label>
-            <Input id="phone" type="tel" autoComplete="off" aria-invalid={!!errors.phone} {...register("phone")} />
-            {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="registrationNumber">Registration number</Label>
-            <Input
-              id="registrationNumber"
-              autoComplete="off"
-              aria-invalid={!!errors.registrationNumber}
-              {...register("registrationNumber")}
-            />
-            {errors.registrationNumber && (
-              <p className="text-sm text-destructive">{errors.registrationNumber.message}</p>
-            )}
-          </div>
-
-          <div className="space-y-2 sm:col-span-2">
-            <div className="flex items-center justify-between gap-2">
-              <Label htmlFor="specializationId">Specialization</Label>
-              {!addingSpecialization && (
-                <Button type="button" variant="ghost" size="sm" onClick={() => setAddingSpecialization(true)}>
-                  <Plus className="h-4 w-4" />
-                  New specialization
-                </Button>
-              )}
-            </div>
-            <Select id="specializationId" aria-invalid={!!errors.specializationId} {...register("specializationId")}>
-              <option value="">{specializations.isLoading ? "Loading..." : "Select a specialization"}</option>
-              {specializations.data?.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.title}
-                </option>
-              ))}
-            </Select>
-            {errors.specializationId && <p className="text-sm text-destructive">{errors.specializationId.message}</p>}
-            {specializations.isError && <p className="text-sm text-destructive">Could not load specializations.</p>}
-          </div>
-
-          {addingSpecialization && (
-            <div className="sm:col-span-2">
-              <SpecializationEditor
-                onCancel={() => setAddingSpecialization(false)}
-                onSaved={(saved) => {
-                  setValue("specializationId", String(saved.id), { shouldValidate: true });
-                  setAddingSpecialization(false);
-                }}
+            <Field
+              label="Google email"
+              htmlFor="email"
+              error={errors.email?.message}
+              hint={isEdit ? "The sign-in email cannot be changed." : undefined}
+              className="space-y-2 sm:col-span-2"
+            >
+              <Input
+                id="email"
+                type="email"
+                autoComplete="off"
+                readOnly={isEdit}
+                className={isEdit ? "cursor-not-allowed bg-muted text-muted-foreground" : undefined}
+                aria-invalid={!!errors.email}
+                {...register("email")}
               />
+            </Field>
+
+            <Field label="Phone" htmlFor="phone" required={false} error={errors.phone?.message}>
+              <Input id="phone" type="tel" autoComplete="off" aria-invalid={!!errors.phone} {...register("phone")} />
+            </Field>
+          </Section>
+
+          <Section title="Practice">
+            <div className="space-y-2 sm:col-span-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="specializationId">
+                  Specialization <span className="text-destructive">*</span>
+                </Label>
+                {!addingSpecialization && (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setAddingSpecialization(true)}>
+                    <Plus />
+                    New
+                  </Button>
+                )}
+              </div>
+              <Controller
+                name="specializationId"
+                control={control}
+                render={({ field }) => (
+                  <SelectMenu
+                    id="specializationId"
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    options={specializationOptions}
+                    placeholder={specializations.isLoading ? "Loading..." : "Select a specialization"}
+                    invalid={!!errors.specializationId}
+                  />
+                )}
+              />
+              {errors.specializationId && (
+                <p className="flex items-center gap-1.5 text-sm text-destructive">
+                  <AlertCircle className="size-3.5 shrink-0" />
+                  {errors.specializationId.message}
+                </p>
+              )}
+              {specializations.isError && <p className="text-sm text-destructive">Could not load specializations.</p>}
             </div>
-          )}
 
-          {isEdit && (
-            <label className="flex items-center gap-3 text-sm sm:col-span-2">
-              <input type="checkbox" className="h-4 w-4 accent-primary" {...register("active")} />
-              Active (can sign in)
-            </label>
-          )}
+            {addingSpecialization && (
+              <div className="sm:col-span-2">
+                <SpecializationEditor
+                  onCancel={() => setAddingSpecialization(false)}
+                  onSaved={(saved) => {
+                    setValue("specializationId", String(saved.id), { shouldValidate: true });
+                    setAddingSpecialization(false);
+                  }}
+                />
+              </div>
+            )}
 
-          {formError && <p className="text-sm text-destructive sm:col-span-2">{formError}</p>}
-          <div className="flex flex-col-reverse gap-3 sm:col-span-2 sm:flex-row sm:justify-end">
+            {isEdit && (
+              <label className="flex cursor-pointer items-start gap-3 rounded-lg border bg-muted/30 p-4 sm:col-span-2">
+                <input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-primary" {...register("active")} />
+                <span>
+                  <span className="block text-sm font-medium">Active</span>
+                  <span className="block text-sm text-muted-foreground">
+                    When off, this doctor is blocked from signing in.
+                  </span>
+                </span>
+              </label>
+            )}
+          </Section>
+
+          <div className="flex flex-col-reverse gap-2 border-t bg-muted/30 px-4 py-4 sm:flex-row sm:justify-end sm:px-6">
+            {formError && (
+              <p className="flex items-center gap-1.5 text-sm text-destructive sm:mr-auto">
+                <AlertCircle className="size-4 shrink-0" />
+                {formError}
+              </p>
+            )}
             <Button variant="outline" asChild>
               <Link to="/doctors">Cancel</Link>
             </Button>
-            <Button type="submit" disabled={mutation.isPending}>
-              {mutation.isPending ? "Saving..." : isEdit ? "Save changes" : "Save doctor"}
+            <Button type="submit" loading={mutation.isPending}>
+              {isEdit ? "Save changes" : "Save doctor"}
             </Button>
           </div>
-        </form>
-      </Card>
+        </Card>
+      </form>
     </>
   );
 }

@@ -25,6 +25,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     await apiLogout();
     queryClient.setQueryData(ME_KEY, null);
+    // Logging out clears the CSRF token. Without a page load the next POST would reuse the stale
+    // one and be rejected, so refetch to make the server issue a fresh XSRF-TOKEN cookie.
+    await queryClient.refetchQueries({ queryKey: ME_KEY });
   };
 
   return (

@@ -4,10 +4,10 @@ export interface Doctor {
   id: number;
   fullName: string;
   email: string;
-  phone: string;
+  /** Optional, so null when nobody recorded a number. */
+  phone: string | null;
   specializationId: number | null;
   specializationTitle: string | null;
-  registrationNumber: string;
   active: boolean;
   createdAt: string;
 }
@@ -17,7 +17,6 @@ export interface DoctorInput {
   email: string;
   phone: string;
   specializationId: number;
-  registrationNumber: string;
 }
 
 export type DoctorUpdate = Omit<DoctorInput, "email"> & { active: boolean };
@@ -26,7 +25,6 @@ export interface DoctorFilters {
   fullName: string;
   email: string;
   phone: string;
-  registrationNumber: string;
   specializationId: string;
   active: string;
 }
@@ -44,7 +42,6 @@ export interface AuditEntry {
   eventType: string;
   actorEmail: string | null;
   details: string | null;
-  ipAddress: string | null;
   createdAt: string;
 }
 
@@ -83,8 +80,17 @@ export const updateSpecialization = (id: number, s: SpecializationInput) =>
   apiJson<Specialization>(`/api/admin/specializations/${id}`, json("PUT", s));
 export const deleteSpecialization = (id: number) => apiFetch(`/api/admin/specializations/${id}`, { method: "DELETE" });
 
-export const listAuditLogs = (page: number, eventType: string) => {
+export interface AuditFilters {
+  eventType: string;
+  /** Inclusive yyyy-mm-dd bounds; either may be empty. */
+  from: string;
+  to: string;
+}
+
+export const listAuditLogs = (page: number, filters: AuditFilters) => {
   const params = new URLSearchParams({ page: String(page), size: "20" });
-  if (eventType) params.set("eventType", eventType);
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
   return apiJson<Page<AuditEntry>>(`/api/admin/audit-logs?${params}`);
 };

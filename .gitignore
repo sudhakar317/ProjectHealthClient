@@ -4,3 +4,8 @@ dist/
 *.tsbuildinfo
 .vscode/
 .idea/
+
+# Environment files can hold secrets; only a template with placeholder values belongs in git.
+.env
+.env.*
+!.env.example

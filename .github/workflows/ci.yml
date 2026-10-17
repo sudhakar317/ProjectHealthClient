@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Test
+        run: npm test
+
+      # Typechecks the app and its tests, then produces the production bundle.
+      - name: Build
+        run: npm run build
+
+      # Only what ships to the browser. Build-time tooling is reported separately and does not
+      # block a release, since none of it reaches a user.
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
